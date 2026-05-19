@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Poke — AI PR Review Agent for HBI
+# Usage: ./poke              (browse PRs)
+#        ./poke --pr 4128    (review specific PR)
+#        ./poke --list       (list PRs only)
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python -m scripts.pr_review_agent "$@"

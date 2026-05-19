@@ -1,0 +1,64 @@
+migrations:
+  rules:
+    - "HBI uses partitioned PostgreSQL tables (e.g. hosts has partitions hosts_p0..p31)"
+    - "DDL on a parent table does NOT cascade to partitions — verify each partition is handled"
+    - "Use migrations.helpers.TABLE_NUM_PARTITIONS for partition counts (defined in migrations/helpers.py)"
+    - "Index operations on partitioned tables should use utils.partitioned_table_index_helper.{create,drop}_partitioned_table_index"
+    - "MIGRATION_MODE ('managed' vs 'automated') in migrations/helpers.py affects index naming — check branching"
+    - "Replica identity changes need per-partition ALTER TABLE statements, not just the parent"
+    - "Every migration must have a working downgrade() — empty downgrade is a red flag"
+    - "Import INVENTORY_SCHEMA from app.models.constants — do not hardcode 'hbi'"
+
+auth:
+  rules:
+    - "New endpoints MUST use @access decorator (Kessel/v2 path) from lib/middleware.py"
+    - "resolve_permission() in lib/middleware.py is the main auth entry point — do not call RBAC HTTP or Kessel gRPC directly (exception: workspace RBAC in the same file uses separate private/PSK routes)"
+    - "bypass_rbac / bypass_kessel are env vars forced True only in TEST — never rely on them in production logic"
+    - "org_id must isolate tenant data — cross-tenant queries are critical bugs"
+    - "Cert/system identities can only access HOSTS resources, not GROUPS or RESOURCE_TYPES (enforced in @rbac and @access)"
+    - "IdsNotFoundError: raise when access is denied AND the resource does not exist in DB — prevents leaking existence info. Otherwise abort 403."
+    - "Kessel gRPC errors must fail closed — never silently allow access on gRPC failure"
+
+kafka:
+  rules:
+    - "Event schema changes must update swagger/host_events.spec.yaml"
+    - "Producer serialization uses Marshmallow in app/queue/events.py — must match the spec YAML"
+    - "New topics need a config.py entry with env var + Clowder KafkaTopics.get() mapping (in Config.clowder_config)"
+    - "Consumer changes should verify dead-letter handling for malformed messages"
+    - "platform.inventory.events is consumed by many downstream services — schema changes are breaking"
+
+api:
+  rules:
+    - "Connexion RestyResolver('api') maps operationId to api.module.function — new endpoints need an operationId in swagger/openapi.json"
+    - "Removing or renaming HTTP response fields is a BREAKING change — needs deprecation period"
+    - "Beta/experimental endpoints go under /beta/ prefix (e.g. /beta/hosts-view)"
+    - "New query parameters must be optional for backward compatibility"
+    - "Internal function signature changes (adding/removing Python parameters) are NOT API breaking changes — only flag changes to the HTTP request/response contract"
+
+models:
+  rules:
+    - "All tables use __table_args__ = ({'schema': INVENTORY_SCHEMA},)"
+    - "Host extends LimitedHost — both map to the 'hosts' table"
+    - "HostTypeDeriver mixin from app.models.mixins handles host type derivation"
+    - "HTTP/MQ payload schemas use Marshmallow in app/models/schemas/"
+    - "System profile validation uses jsonschema against swagger/system_profile.spec.yaml"
+
+errors:
+  rules:
+    - "Prefer InventoryException subclasses (app/exceptions.py) over bare flask.abort()"
+    - "InputFormatException → 400 for malformed input"
+    - "ValidationException → 400 for business rule violations"
+    - "ResourceNotFoundException → 404"
+    - "IdsNotFoundError → 404 when RBAC-denied and resource also missing in DB"
+    - "render_exception() in app/__init__.py auto-converts InventoryException to JSON responses"
+
+testing:
+  rules:
+    - "Tests use a real PostgreSQL database, not SQLite"
+    - "API/integration tests (HTTP requests): use flask_client fixture + api_get/api_post/api_patch helpers"
+    - "Unit tests (serialization, models, utilities): call functions directly — do NOT require flask_client or api helpers"
+    - "Only mock services the code actually touches — RBAC mocking for API tests, Kafka mocking for MQ tests, nothing for pure logic tests"
+    - "MQ tests use mq_create_or_update_host with MockEventProducer"
+    - "New ENDPOINTS need: happy path, auth denied, invalid input, not found tests. Refactoring PRs with no new endpoints do NOT need new scenario tests."
+    - "Extend existing fixtures in tests/fixtures/ — do not create parallel fixture sets"
+    - "clean_tables() resets the DB between tests — do not rely on test ordering"

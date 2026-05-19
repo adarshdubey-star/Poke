@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Poke — AI PR Review Agent</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --orange: #db6d28;
+    --purple: #bc8cff;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  .deck { height: 100vh; overflow: hidden; }
+
+  .slide {
+    display: none;
+    height: 100vh;
+    padding: 60px 80px;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .slide.active { display: flex; }
+
+  h1 { font-size: 56px; font-weight: 700; line-height: 1.1; margin-bottom: 16px; }
+  h2 { font-size: 40px; font-weight: 600; line-height: 1.2; margin-bottom: 24px; color: var(--accent); }
+  h3 { font-size: 28px; font-weight: 600; margin-bottom: 16px; }
+  p, li { font-size: 22px; line-height: 1.6; color: var(--text-dim); }
+  li { margin-bottom: 8px; }
+  ul { list-style: none; padding-left: 0; }
+  ul li::before { content: "→ "; color: var(--accent); font-weight: 600; }
+
+  .highlight { color: var(--accent); }
+  .green { color: var(--green); }
+  .red { color: var(--red); }
+  .yellow { color: var(--yellow); }
+  .purple { color: var(--purple); }
+  .dim { color: var(--text-dim); }
+  .bold { font-weight: 700; color: var(--text); }
+
+  .subtitle { font-size: 24px; color: var(--text-dim); margin-bottom: 40px; }
+
+  .tag {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 16px;
+    font-size: 14px;
+    font-weight: 600;
+    margin-right: 8px;
+    margin-bottom: 8px;
+  }
+  .tag-blue { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .tag-green { background: rgba(63,185,80,0.15); color: var(--green); }
+  .tag-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .tag-red { background: rgba(248,81,73,0.15); color: var(--red); }
+  .tag-purple { background: rgba(188,140,255,0.15); color: var(--purple); }
+
+  .grid { display: grid; gap: 24px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  .card h3 { font-size: 20px; margin-bottom: 12px; }
+  .card p { font-size: 18px; }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+  }
+  .stat-card .value { font-size: 48px; font-weight: 700; }
+  .stat-card .label { font-size: 16px; color: var(--text-dim); margin-top: 4px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 18px;
+  }
+  th {
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  tr:last-child td { border-bottom: none; }
+
+  .code-block {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 16px;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--text-dim);
+  }
+
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .pipeline-step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .pipeline-arrow { color: var(--text-dim); font-size: 24px; }
+
+  .comparison-row {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 16px;
+  }
+  .comparison-label { width: 200px; font-size: 18px; font-weight: 600; }
+  .bar {
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--bg);
+    min-width: 40px;
+  }
+
+  .nav {
+    position: fixed;
+    bottom: 24px;
+    right: 32px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    z-index: 100;
+  }
+  .nav button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  .nav button:hover { border-color: var(--accent); }
+  .nav .counter { color: var(--text-dim); font-size: 14px; }
+
+  .spacer { height: 32px; }
+  .spacer-sm { height: 16px; }
+
+  .hero-logo {
+    font-size: 120px;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -4px;
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: start;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .slide.active > * {
+    animation: fadeIn 0.4s ease-out forwards;
+  }
+</style>
+</head>
+<body>
+
+<div class="deck" id="deck">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active">
+  <div class="hero-logo">Poke</div>
+  <h1>AI PR Review Agent</h1>
+  <p class="subtitle">Domain-aware code review for HBI — powered by GPT-4o + o3-mini</p>
+  <div class="spacer"></div>
+  <div style="display:flex;gap:12px"></div>
+  <div class="spacer"></div>
+  <p class="dim">Adarsh Dubey · Red Hat Insights · Host Based Inventory</p>
+</div>
+
+<!-- SLIDE 2: The Problem -->
+<div class="slide">
+  <h2>The Problem</h2>
+  <div class="spacer-sm"></div>
+  <div class="grid grid-2">
+    <div>
+      <h3 class="red">AI-generated code is everywhere</h3>
+      <ul>
+        <li>More PRs than ever, generated by AI agents</li>
+        <li>Human reviewers can't keep up with the volume</li>
+        <li>Generic tools (CodeRabbit, Sourcery) don't know <span class="bold">our codebase</span></li>
+        <li>They flag style issues, miss domain-specific bugs</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="yellow">What reviewers actually need</h3>
+      <ul>
+        <li>Does this migration handle our <span class="bold">32 partitions</span>?</li>
+        <li>Is <span class="bold">org_id</span> filtering maintained for tenant isolation?</li>
+        <li>Does the event schema match <span class="bold">host_events.spec.yaml</span>?</li>
+        <li>Are new endpoints using <span class="bold">@access</span> decorator?</li>
+      </ul>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div></div>
+</div>
+
+<!-- SLIDE 3: What is Poke -->
+<div class="slide">
+  <h2>What is Poke?</h2>
+  <div class="spacer-sm"></div>
+  <p style="font-size:28px;color:var(--text);max-width:800px;margin-bottom:32px">
+    A PR review agent that <span class="highlight">knows HBI inside out</span> — its partitioned tables, 
+    Kafka topics, auth patterns, and team conventions.
+  </p>
+  <div class="grid grid-4">
+    <div class="stat-card">
+      <div class="value highlight">25</div>
+      <div class="label">Source files</div>
+    </div>
+    <div class="stat-card">
+      <div class="value green">5</div>
+      <div class="label">Review lenses</div>
+    </div>
+    <div class="stat-card">
+      <div class="value purple">1032</div>
+      <div class="label">Indexed code chunks</div>
+    </div>
+    <div class="stat-card">
+      <div class="value yellow">0</div>
+      <div class="label">API keys needed</div>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div></div>
+</div>
+
+<!-- SLIDE 4: How it works — Pipeline -->
+<div class="slide">
+  <h2>How It Works</h2>
+  <div class="spacer-sm"></div>
+  <div class="pipeline">
+    <div class="pipeline-step" style="border-color:var(--accent)">./poke</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step">Index Codebase</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step">Auto-Discover</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step">Parse Diff + Full Files</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step" style="border-color:var(--green)">5 Lenses</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step" style="border-color:var(--purple)">Self-Critique</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step" style="border-color:var(--yellow)">Dedup</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step" style="border-color:var(--green)">Review</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="grid grid-3">
+    <div class="card">
+      <h3 class="highlight">Three Knowledge Sources</h3>
+      <p><span class="bold">ChromaDB</span> — 1032 code chunks indexed by embeddings. Shows the LLM where removed code moved to.</p>
+      <div class="spacer-sm"></div>
+      <p><span class="bold">Auto-Discovery</span> — scans live codebase for 9 Kafka topics, 11 partitioned tables, 41 API endpoints.</p>
+      <div class="spacer-sm"></div>
+      <p><span class="bold">rules.yaml</span> — 65 lines of team wisdom verified against actual code.</p>
+    </div>
+    <div class="card">
+      <h3 class="green">Two-Model Strategy</h3>
+      <p><span class="bold">GPT-4o</span> generates findings with full context — diff + full file + related code chunks + PR description.</p>
+      <div class="spacer-sm"></div>
+      <p><span class="bold">o3-mini</span> (reasoning model) validates every finding. Filters false positives by checking: did behavior change, or just move?</p>
+    </div>
+    <div class="card">
+      <h3 class="purple">Confidence Scoring</h3>
+      <p>Each finding rated <span class="bold">1-10</span> confidence. Below 6 = dropped.</p>
+      <div class="spacer-sm"></div>
+      <p>Then <span class="bold">concept dedup</span> merges similar findings (e.g. 14 "org_id" findings → 1 with affected files listed).</p>
+      <div class="spacer-sm"></div>
+      <p>Max <span class="bold">5 findings per lens</span>. Quality over quantity.</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 5a: How Poke Thinks — Knowledge -->
+<div class="slide" style="padding:40px 80px">
+  <h2>How Poke Thinks <span class="dim" style="font-size:24px">— Knowledge</span></h2>
+  <p style="color:var(--text-dim);font-size:20px;margin-bottom:20px">Before reviewing a single line of code, Poke learns our system</p>
+
+  <div class="grid grid-2" style="gap:24px">
+    <div class="card" style="border-color:var(--accent);padding:20px">
+      <h3 class="highlight" style="margin-bottom:12px">Auto-Discovery</h3>
+      <p style="font-size:18px;margin-bottom:12px">Scans our actual code before every review — no manual config:</p>
+      <table style="font-size:16px">
+        <tr><th style="padding:6px 12px">What it learns</th><th style="padding:6px 12px">Where</th><th style="padding:6px 12px">Result</th></tr>
+        <tr><td style="padding:6px 12px" class="bold">Kafka topics</td><td style="padding:6px 12px" class="dim">config.py</td><td style="padding:6px 12px">9 topics</td></tr>
+        <tr><td style="padding:6px 12px" class="bold">Partitioned tables</td><td style="padding:6px 12px" class="dim">app/models/</td><td style="padding:6px 12px">11 tables</td></tr>
+        <tr><td style="padding:6px 12px" class="bold">API endpoints</td><td style="padding:6px 12px" class="dim">openapi.json</td><td style="padding:6px 12px">41 endpoints</td></tr>
+        <tr><td style="padding:6px 12px" class="bold">Auth decorators</td><td style="padding:6px 12px" class="dim">api/*.py</td><td style="padding:6px 12px">7 @access, 1 @rbac</td></tr>
+        <tr><td style="padding:6px 12px" class="bold">Feature flags</td><td style="padding:6px 12px" class="dim">config.py</td><td style="padding:6px 12px">8 flags</td></tr>
+      </table>
+      <p class="dim" style="font-size:15px;margin-top:10px">Nobody maintains this list — it stays current automatically.</p>
+    </div>
+
+    <div class="card" style="border-color:var(--purple);padding:20px">
+      <h3 class="purple" style="margin-bottom:12px">ChromaDB Codebase Index</h3>
+      <p style="font-size:18px">Splits our codebase into <span class="bold">1032 code chunks</span> (one per function/class) and indexes them by meaning.</p>
+      <p style="font-size:18px;margin-top:12px">When reviewing a file, pulls up the <span class="bold">5 most related chunks</span> from other files.</p>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:16px">
+        <p style="font-size:17px"><span class="highlight bold">Why this matters:</span> If a parameter is removed from <code>host.py</code>, Poke finds the function in <code>serialization.py</code> where that logic moved to.</p>
+        <p style="font-size:17px;margin-top:8px">The LLM sees both sides — <span class="green bold">so it doesn't flag a refactor as a bug.</span></p>
+      </div>
+      <p style="font-size:17px;margin-top:12px">This is why an 18-file refactoring PR gets <span class="green bold">0 false positives</span> instead of 36.</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 5b: How Poke Thinks — AI + Quality -->
+<div class="slide" style="padding:40px 80px">
+  <h2>How Poke Thinks <span class="dim" style="font-size:24px">— AI + Quality</span></h2>
+  <p style="color:var(--text-dim);font-size:20px;margin-bottom:20px">Two models working together, plus smart deduplication</p>
+
+  <div class="grid grid-2" style="gap:24px">
+    <div class="card" style="border-color:var(--green);padding:20px">
+      <h3 class="green" style="margin-bottom:10px">Two-Model Strategy</h3>
+
+      <p style="font-size:17px"><span class="bold">GPT-4o</span> <span class="tag tag-blue" style="font-size:12px">Review</span> — generates findings. Each file gets:</p>
+      <ul style="font-size:16px;margin:8px 0">
+        <li>The <span class="bold">diff</span> + <span class="bold">complete file</span> at HEAD</li>
+        <li><span class="bold">Related code</span> from other files via ChromaDB</li>
+        <li><span class="bold">PR description</span> + list of all files changed</li>
+        <li>Our <span class="bold">team rules</span> + auto-discovered facts</li>
+      </ul>
+      <p class="dim" style="font-size:15px">Confidence scoring: 1-10 per finding. Below 6 = auto-dropped.</p>
+
+      <div style="height:16px"></div>
+
+      <p style="font-size:17px"><span class="bold">o3-mini</span> <span class="tag tag-green" style="font-size:12px">Critique</span> — validates every finding:</p>
+      <p style="font-size:16px;margin-top:6px;font-style:italic;color:var(--text-dim)">"Is this real, or did code just move? Did behavior change, or is this refactoring?"</p>
+      <p style="font-size:16px;margin-top:8px">Only findings that pass survive. <span class="green bold">This is where false positives die.</span></p>
+      <p class="dim" style="font-size:15px;margin-top:8px">Both models free on GitHub Models — zero cost.</p>
+    </div>
+
+    <div class="card" style="border-color:var(--yellow);padding:20px">
+      <h3 class="yellow" style="margin-bottom:10px">Smart Deduplication</h3>
+      <p style="font-size:17px;margin-bottom:16px">14 files with the same concern? You get 1 comment, not 14.</p>
+
+      <p style="font-size:16px"><span class="bold">1. Concept grouping</span></p>
+      <p style="font-size:15px;color:var(--text-dim);margin:4px 0 12px">Finds domain patterns: "org_id" + "cross-tenant" → same concept. <span class="bold" style="color:var(--text)">14 findings → 1</span> listing all affected files.</p>
+
+      <p style="font-size:16px"><span class="bold">2. Keyword similarity</span></p>
+      <p style="font-size:15px;color:var(--text-dim);margin:4px 0 12px">Findings sharing >40% of meaningful words get merged.</p>
+
+      <p style="font-size:16px"><span class="bold">3. Per-lens cap</span></p>
+      <p style="font-size:15px;color:var(--text-dim);margin:4px 0 12px">Max <span class="bold" style="color:var(--text)">5 per lens</span>, highest severity first.</p>
+
+      <p class="dim" style="font-size:15px;margin-top:8px">Result: focused reviews — not walls of noise.</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 6: The Five Lenses -->
+<div class="slide">
+  <h2>Five Specialized Lenses</h2>
+  <div class="spacer-sm"></div>
+  <table>
+    <tr>
+      <th>Lens</th>
+      <th>Triggers On</th>
+      <th>Pre-checks (Free)</th>
+      <th>LLM Focus</th>
+    </tr>
+    <tr>
+      <td><span class="tag tag-purple">Migration</span></td>
+      <td>migrations/versions/*.py</td>
+      <td>Missing downgrade, hardcoded 'hbi', partition helper</td>
+      <td>Partition handling, DDL safety</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-red">Auth</span></td>
+      <td>lib/middleware.py, api/*</td>
+      <td>bypass_rbac in production code</td>
+      <td>@access decorators, org_id isolation</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-blue">Kafka</span></td>
+      <td>app/queue/*, event files</td>
+      <td>Hardcoded topic names</td>
+      <td>Event schema drift, breaking changes</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-green">API</span></td>
+      <td>api/*, swagger/*</td>
+      <td>—</td>
+      <td>Breaking HTTP contract, backward compat</td>
+    </tr>
+    <tr>
+      <td><span class="tag tag-yellow">Test</span></td>
+      <td>tests/*, source files</td>
+      <td>SQLite usage, fixture shadowing</td>
+      <td>Coverage gaps, wrong fixture type</td>
+    </tr>
+  </table>
+  <div class="spacer-sm"></div>
+  <p class="dim">+ Security lens (deterministic only) — regex for hardcoded secrets and SQL injection on every file.</p>
+</div>
+
+<!-- SLIDE 6: What makes Poke different -->
+<div class="slide">
+  <h2>What Makes Poke Different</h2>
+  <div class="spacer-sm"></div>
+  <table>
+    <tr>
+      <th></th>
+      <th>Generic Tools</th>
+      <th style="color:var(--accent)">Poke</th>
+    </tr>
+    <tr>
+      <td class="bold">Knows your Kafka topics?</td>
+      <td class="red">No</td>
+      <td class="green">Yes — auto-discovers from config.py</td>
+    </tr>
+    <tr>
+      <td class="bold">Knows your partitioned tables?</td>
+      <td class="red">No</td>
+      <td class="green">Yes — scans app/models/</td>
+    </tr>
+    <tr>
+      <td class="bold">Understands refactoring?</td>
+      <td class="red">Flags parameter moves as bugs</td>
+      <td class="green">Sees full file + related code via ChromaDB</td>
+    </tr>
+    <tr>
+      <td class="bold">Distinguishes unit vs API tests?</td>
+      <td class="red">No — flags everything</td>
+      <td class="green">Yes — different rules per test type</td>
+    </tr>
+    <tr>
+      <td class="bold">False positive filtering?</td>
+      <td class="red">None</td>
+      <td class="green">Self-critique pass with reasoning model</td>
+    </tr>
+    <tr>
+      <td class="bold">Cost?</td>
+      <td class="yellow">$19-49/month subscription</td>
+      <td class="green">Free (GitHub Models)</td>
+    </tr>
+  </table>
+</div>
+
+<!-- SLIDE 7: Journey — false positive reduction -->
+<div class="slide">
+  <h2>The Journey: Killing False Positives</h2>
+  <div class="spacer-sm"></div>
+  <p style="font-size:20px;margin-bottom:24px">Tested on PR #4112 — an 18-file refactoring PR (the hardest case for AI reviewers)</p>
+  <div class="comparison-row">
+    <div class="comparison-label">V1: gpt-4o-mini<br><span class="dim" style="font-size:14px">diff only</span></div>
+    <div class="bar" style="width:720px;background:var(--red)">36 false positives</div>
+  </div>
+  <div class="comparison-row">
+    <div class="comparison-label">V2: + prompts<br><span class="dim" style="font-size:14px">anti-FP guidance</span></div>
+    <div class="bar" style="width:200px;background:var(--orange)">10 findings</div>
+  </div>
+  <div class="comparison-row">
+    <div class="comparison-label">V3: + gpt-4o<br><span class="dim" style="font-size:14px">better model</span></div>
+    <div class="bar" style="width:40px;background:var(--yellow)">1</div>
+  </div>
+  <div class="comparison-row">
+    <div class="comparison-label">V4: + full context<br><span class="dim" style="font-size:14px">ChromaDB + full files</span></div>
+    <div class="bar" style="width:20px;background:var(--green)">0</div>
+  </div>
+  <div class="comparison-row">
+    <div class="comparison-label">Final: + o3-mini<br><span class="dim" style="font-size:14px">self-critique</span></div>
+    <div class="bar" style="width:20px;background:var(--green)">0 ✓</div>
+  </div>
+  <div class="spacer"></div>
+  <p class="dim">From 36 false positives → 0. And on PRs with real bugs, Poke catches them consistently.</p>
+</div>
+
+<!-- SLIDE 8: Benchmark Results -->
+<div class="slide">
+  <h2>Benchmark: 8 Real PRs</h2>
+  <div class="spacer-sm"></div>
+  <table>
+    <tr>
+      <th>PR</th>
+      <th>Type</th>
+      <th>Files</th>
+      <th>Findings</th>
+      <th>False Positives</th>
+      <th>Result</th>
+    </tr>
+    <tr>
+      <td>#4201</td>
+      <td>Intentional bug</td>
+      <td>3</td>
+      <td>6</td>
+      <td class="green">0</td>
+      <td class="green">Caught the bug ✓</td>
+    </tr>
+    <tr>
+      <td>#4178</td>
+      <td>OTEL config</td>
+      <td>3</td>
+      <td>0</td>
+      <td class="green">0</td>
+      <td class="green">Clean PR ✓</td>
+    </tr>
+    <tr>
+      <td>#4128</td>
+      <td>New table + migration</td>
+      <td>6</td>
+      <td>4</td>
+      <td class="green">0</td>
+      <td class="green">Migration issues ✓</td>
+    </tr>
+    <tr>
+      <td>#4117</td>
+      <td>RBAC OAuth2</td>
+      <td>12</td>
+      <td>2</td>
+      <td class="yellow">1</td>
+      <td>pre-check FP</td>
+    </tr>
+    <tr>
+      <td>#4115</td>
+      <td>Refactoring (17 files)</td>
+      <td>17</td>
+      <td>5</td>
+      <td class="green">0</td>
+      <td class="green">Clean refactor ✓</td>
+    </tr>
+    <tr>
+      <td>#4113</td>
+      <td>PSK auth fix</td>
+      <td>9</td>
+      <td>6</td>
+      <td class="green">0</td>
+      <td class="green">Valid findings ✓</td>
+    </tr>
+    <tr>
+      <td>#4112</td>
+      <td>Refactoring (18 files)</td>
+      <td>18</td>
+      <td>5</td>
+      <td class="yellow">1</td>
+      <td>WARNING-level FP</td>
+    </tr>
+    <tr>
+      <td>#4061</td>
+      <td>New API params</td>
+      <td>8</td>
+      <td>5</td>
+      <td class="green">0</td>
+      <td class="green">Backward compat ✓</td>
+    </tr>
+  </table>
+  <div class="spacer"></div>
+  <div class="grid grid-3">
+    <div class="stat-card"><div class="value">33</div><div class="label">Total findings</div></div>
+    <div class="stat-card"><div class="value red">2</div><div class="label">False positives</div></div>
+    <div class="stat-card"><div class="value green">94%</div><div class="label">Accuracy</div></div>
+  </div>
+</div>
+
+<!-- SLIDE 9: CLI Demo -->
+<div class="slide">
+  <h2>The CLI Experience</h2>
+  <div class="spacer-sm"></div>
+  <div class="two-col">
+    <div>
+      <h3>Just type <span class="highlight">./poke</span></h3>
+      <div class="spacer-sm"></div>
+      <ul>
+        <li>Auto-detects GitHub auth from <span class="bold">gh</span> CLI</li>
+        <li>Shows all open PRs with predicted lenses</li>
+        <li>Pick a number, Poke reviews it</li>
+        <li>Progress bar shows each step</li>
+        <li>Post findings directly to the PR</li>
+      </ul>
+      <div class="spacer"></div>
+      <h3>Zero Setup</h3>
+      <ul>
+        <li>No API keys — uses free GitHub Models</li>
+        <li>No config files — works out of the box</li>
+        <li>No subscriptions — gpt-4o + o3-mini are free</li>
+      </ul>
+    </div>
+    <div>
+      <div class="code-block" style="font-size:14px">
+<span style="color:var(--accent)">╭────────────────────────╮</span>
+<span style="color:var(--accent)">│ Poke — AI Review Agent │</span>
+<span style="color:var(--accent)">╰────────────────────────╯</span>
+
+  PR   Title                  Author    Lenses
+ 4264  Fix wildcard filter…   bugkiller Api, Test
+ 4128  Add inventory_views…   adarsh    Migration, Test
+ 4061  Add workspace params…  ondrej    Api, Test
+
+  Enter PR number: <span style="color:var(--green)">4061</span>
+
+<span style="color:var(--accent)">╭── Poke — Reviewing PR #4061 ──╮</span>
+<span style="color:var(--accent)">│</span> Model: gpt-4o | Critique: o3-mini <span style="color:var(--accent)">│</span>
+<span style="color:var(--accent)">╰──────────────────────────────╯</span>
+
+  <span style="color:var(--green)">✓</span> Codebase indexed    1032 chunks
+  <span style="color:var(--green)">✓</span> Codebase scanned    9 topics
+  <span style="color:var(--green)">✓</span> Diff parsed         8 files
+  <span style="color:var(--green)">✓</span> Files routed        Api, Test
+  <span style="color:var(--green)">✓</span> Lenses complete     <span style="color:var(--accent)">━━━━━━━━━━</span> 16/16
+  <span style="color:var(--green)">✓</span> Raw findings        20
+  <span style="color:var(--green)">✓</span> Validated           20 → 5
+  <span style="color:var(--green)">✓</span> Deduplicated        5
+
+  <span style="color:var(--red)">CRITICAL</span> host_views.py:136
+  Breaking change: group_name → workspace_name
+
+  Post to PR? (a=all, 1,3=pick, q=skip)
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 10: Architecture -->
+<div class="slide">
+  <h2>Architecture — 25 Files</h2>
+  <div class="spacer-sm"></div>
+  <div class="grid grid-2" style="gap:32px">
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="highlight">Core Pipeline</h3>
+        <table style="font-size:16px">
+          <tr><td style="width:180px"><code>__main__.py</code></td><td class="dim">CLI entry + auth</td></tr>
+          <tr><td><code>main.py</code></td><td class="dim">Pipeline orchestrator</td></tr>
+          <tr><td><code>diff_parser.py</code></td><td class="dim">Diff + full file fetch</td></tr>
+          <tr><td><code>change_router.py</code></td><td class="dim">File → lens routing</td></tr>
+          <tr><td><code>llm_engine.py</code></td><td class="dim">GPT-4o + o3-mini calls</td></tr>
+          <tr><td><code>deduplicator.py</code></td><td class="dim">Concept + Jaccard dedup</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h3 class="purple">Knowledge</h3>
+        <table style="font-size:16px">
+          <tr><td style="width:180px"><code>codebase_index.py</code></td><td class="dim">ChromaDB indexing</td></tr>
+          <tr><td><code>auto_discover.py</code></td><td class="dim">Runtime codebase scan</td></tr>
+          <tr><td><code>rules.yaml</code></td><td class="dim">Team wisdom (65 lines)</td></tr>
+          <tr><td><code>prompts.py</code></td><td class="dim">LLM templates</td></tr>
+        </table>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <h3 class="green">Lenses</h3>
+        <table style="font-size:16px">
+          <tr><td style="width:180px"><code>migration.py</code></td><td class="dim">Partitions, downgrade, schema</td></tr>
+          <tr><td><code>auth.py</code></td><td class="dim">RBAC, Kessel, org_id</td></tr>
+          <tr><td><code>kafka.py</code></td><td class="dim">Event schema, topics</td></tr>
+          <tr><td><code>api.py</code></td><td class="dim">OpenAPI contract</td></tr>
+          <tr><td><code>test.py</code></td><td class="dim">Coverage, fixtures</td></tr>
+          <tr><td><code>security.py</code></td><td class="dim">Secrets, SQL injection</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h3 class="yellow">Output</h3>
+        <table style="font-size:16px">
+          <tr><td style="width:180px"><code>cli_formatter.py</code></td><td class="dim">Rich terminal output</td></tr>
+          <tr><td><code>comment_builder.py</code></td><td class="dim">GitHub comment format</td></tr>
+          <tr><td><code>github_client.py</code></td><td class="dim">Post reviews via API</td></tr>
+          <tr><td><code>pr_selector.py</code></td><td class="dim">PR table display</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 11: Real catch examples -->
+<div class="slide">
+  <h2>Real Catches</h2>
+  <div class="spacer-sm"></div>
+  <div class="grid grid-2" style="gap:24px">
+    <div class="card" style="border-color:var(--red)">
+      <h3><span class="tag tag-red">CRITICAL</span> PR #4201 — Intentional Bug</h3>
+      <p class="dim" style="margin-bottom:8px">Author: rodrigonull</p>
+      <p><span class="bold">Found:</span> <code>count + '+1'</code> concatenation causes TypeError at runtime</p>
+      <p class="dim" style="margin-top:8px">PR title: "DO NOT MERGE: introduce intentional bug for FAA test"</p>
+      <p style="margin-top:8px"><span class="green bold">Poke caught it immediately.</span></p>
+    </div>
+    <div class="card" style="border-color:var(--red)">
+      <h3><span class="tag tag-red">CRITICAL</span> PR #4061 — Backward Compat</h3>
+      <p class="dim" style="margin-bottom:8px">Author: ezr-ondrej</p>
+      <p><span class="bold">Found:</span> <code>host_views.py</code> renamed <code>group_name</code> → <code>workspace_name</code> without backward compat</p>
+      <p class="dim" style="margin-top:8px">Other files used _normalize_workspace_filters, this one didn't.</p>
+      <p style="margin-top:8px"><span class="green bold">Cross-file awareness caught it.</span></p>
+    </div>
+    <div class="card" style="border-color:var(--yellow)">
+      <h3><span class="tag tag-yellow">WARNING</span> PR #4128 — Migration</h3>
+      <p class="dim" style="margin-bottom:8px">Author: adarshdubey-star</p>
+      <p><span class="bold">Found:</span> Hardcoded <code>schema='hbi'</code> instead of <code>INVENTORY_SCHEMA</code></p>
+      <p class="dim" style="margin-top:8px">Deterministic pre-check — no LLM cost.</p>
+      <p style="margin-top:8px"><span class="green bold">rules.yaml knowledge paid off.</span></p>
+    </div>
+    <div class="card" style="border-color:var(--green)">
+      <h3><span class="tag tag-green">CLEAN</span> PR #4112 — 18-file Refactor</h3>
+      <p class="dim" style="margin-bottom:8px">Author: ezr-ondrej</p>
+      <p><span class="bold">Result:</span> 0 false positives on a pure refactoring PR</p>
+      <p class="dim" style="margin-top:8px">Previously: 36 false positives with generic tools.</p>
+      <p style="margin-top:8px"><span class="green bold">Full context + self-critique = precision.</span></p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 12: Tech Stack -->
+<div class="slide">
+  <h2>Tech Stack</h2>
+  <div class="spacer-sm"></div>
+  <div class="grid grid-3">
+    <div class="card">
+      <h3>LLMs</h3>
+      <ul>
+        <li><span class="bold">GPT-4o</span> — review generation</li>
+        <li><span class="bold">o3-mini</span> — self-critique (reasoning)</li>
+        <li>Via GitHub Models — <span class="green">free</span></li>
+        <li>Confidence scoring (1-10)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Vector DB</h3>
+      <ul>
+        <li><span class="bold">ChromaDB</span> — codebase indexing</li>
+        <li>all-MiniLM-L6-v2 embeddings</li>
+        <li>1032 chunks, auto-rebuilds</li>
+        <li>Persists locally in .poke_index/</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>CLI</h3>
+      <ul>
+        <li><span class="bold">Rich</span> — tables, progress, panels</li>
+        <li><span class="bold">gh CLI</span> — GitHub API + auth</li>
+        <li><span class="bold">Python 3.12</span></li>
+        <li>Single command: <code>./poke</code></li>
+      </ul>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="grid grid-3">
+    <div class="card">
+      <h3>Knowledge</h3>
+      <ul>
+        <li><span class="bold">Auto-discovery</span> — runtime scan</li>
+        <li><span class="bold">rules.yaml</span> — team conventions</li>
+        <li>9 Kafka topics, 11 tables, 41 endpoints discovered automatically</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Quality</h3>
+      <ul>
+        <li><span class="bold">Concept dedup</span> — domain-aware merging</li>
+        <li><span class="bold">Per-lens cap</span> — max 5 per lens</li>
+        <li><span class="bold">Deterministic pre-checks</span> — free, instant</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Integration</h3>
+      <ul>
+        <li><span class="bold">GitHub Actions</span> — CI workflow</li>
+        <li><span class="bold">Inline PR comments</span> — file:line</li>
+        <li><span class="bold">Cherry-pick posting</span> — pick which to post</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 13: What's Next -->
+<div class="slide">
+  <h2>What's Next</h2>
+  <div class="spacer-sm"></div>
+  <div class="grid grid-2">
+    <div>
+      <h3 class="highlight">Short Term</h3>
+      <ul>
+        <li>Add more lenses (Performance, Dependencies)</li>
+        <li>GitHub Actions workflow for auto-review on every PR</li>
+        <li>Support for other repos beyond HBI</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="purple">Long Term</h3>
+      <ul>
+        <li>Learn from reviewer feedback (accepted vs dismissed findings)</li>
+        <li>Per-developer patterns (like Nova's developer memory)</li>
+        <li>Multi-repo context (shared libraries, downstream consumers)</li>
+      </ul>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="card" style="border-color:var(--accent);max-width:600px">
+    <h3 class="highlight">The Vision</h3>
+    <p>Every PR reviewed in 30 seconds. Zero false positives. Domain experts encoded in code, not just in people's heads.</p>
+  </div>
+</div>
+
+<!-- SLIDE 14: Thank You -->
+<div class="slide" style="text-align:center;justify-content:center;align-items:center">
+  <div class="hero-logo">Poke</div>
+  <div class="spacer-sm"></div>
+  <h1>Thank You</h1>
+  <p class="subtitle">AI-powered PR reviews that actually understand your codebase</p>
+  <div class="spacer"></div>
+  <div style="display:flex;gap:16px;justify-content:center">
+    <div class="stat-card" style="min-width:140px"><div class="value green">94%</div><div class="label">Accuracy</div></div>
+    <div class="stat-card" style="min-width:140px"><div class="value highlight">30s</div><div class="label">Per review</div></div>
+    <div class="stat-card" style="min-width:140px"><div class="value yellow">$0</div><div class="label">Cost</div></div>
+    <div class="stat-card" style="min-width:140px"><div class="value purple">1</div><div class="label">Command</div></div>
+  </div>
+  <div class="spacer"></div>
+  <p class="dim">Adarsh Dubey · Red Hat Insights · AI Hackathon 2026</p>
+  <div class="spacer-sm"></div>
+  <p style="font-size:18px"><span class="highlight">./poke</span> — try it yourself</p>
+</div>
+
+</div>
+
+<!-- Navigation -->
+<div class="nav">
+  <span class="counter" id="counter">1 / 16</span>
+  <button onclick="prev()">← Prev</button>
+  <button onclick="next()">Next →</button>
+</div>
+
+<script>
+let current = 0;
+const slides = document.querySelectorAll('.slide');
+const counter = document.getElementById('counter');
+
+function show(n) {
+  slides[current].classList.remove('active');
+  current = (n + slides.length) % slides.length;
+  slides[current].classList.add('active');
+  counter.textContent = `${current + 1} / ${slides.length}`;
+}
+
+function next() { show(current + 1); }
+function prev() { show(current - 1); }
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
+});
+</script>
+
+</body>
+</html>
